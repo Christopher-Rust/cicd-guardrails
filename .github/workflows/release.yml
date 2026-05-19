@@ -44,10 +44,17 @@ jobs:
       minor: ${{ steps.rp.outputs.minor }}
       patch: ${{ steps.rp.outputs.patch }}
     steps:
+      # App token must be minted in this job: GitHub blocks passing tokens via job outputs.
+      - id: release-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - id: rp
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7  # v5.0.0 (Node 24)
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.release-app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
@@ -62,14 +69,19 @@ jobs:
     env:
       VERSION: ${{ needs.release-please.outputs.version }}
       TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - id: release-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Checkout main at the new tag
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
         with:
           ref: main
           fetch-depth: 0
-          persist-credentials: true
+          token: ${{ steps.release-app-token.outputs.token }}
 
       - name: Determine previous version
         id: prev
@@ -145,6 +157,8 @@ jobs:
           git push origin main
 
       - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
         run: |
           set -euo pipefail
           ASSETS=( "migrations/v${VERSION}.md" CHANGELOG.md )
@@ -181,14 +195,15 @@ jobs:
       - name: Mint installation token for consumer dispatches
         id: dispatch-app-token
         continue-on-error: true
-        uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a  # v2.1.0
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
         with:
-          app_id: ${{ secrets.GUARDRAILS_CONSUMER_DISPATCH_APP_ID }}
-          private_key: ${{ secrets.GUARDRAILS_CONSUMER_DISPATCH_APP_PRIVATE_KEY }}
-          installation_retrieval_mode: repository
-          installation_retrieval_payload: ${{ env.REPO_OWNER }}/cicd-demo-errors
-          repositories: '["${{ env.REPO_OWNER }}/cicd-demo-errors","${{ env.REPO_OWNER }}/cicd-demo-well"]'
-          permissions: '{"contents":"write"}'
+          app-id: ${{ secrets.GUARDRAILS_CONSUMER_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.GUARDRAILS_CONSUMER_DISPATCH_APP_PRIVATE_KEY }}
+          owner: ${{ env.REPO_OWNER }}
+          repositories: |
+            ${{ env.REPO_OWNER }}/cicd-demo-errors
+            ${{ env.REPO_OWNER }}/cicd-demo-well
+          permission-contents: write
 
       - name: Skip demo dispatch when app credentials are not configured
         if: ${{ steps.dispatch-app-token.outcome != 'success' }}
